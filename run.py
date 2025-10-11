@@ -1,16 +1,12 @@
 import os
 import asyncio
 from datetime import datetime
-from playwright.async_api import async_playwright
 from supabase import create_client
+from playwright.async_api import async_playwright
 
-# Environment variables
+# Environment variables (to be configured in Railway or your local environment)
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")  # Service role key
-GRAFANA_URL = os.getenv(
-    "GRAFANA_URL",
-    "https://estaciones.simet.amdc.hn/public-dashboards/e4d697a0e31647008370b09a592c0129?orgId=1&from=now-24h&to=now"
-)
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")  # The service role key
 BROWSER_ENDPOINT = os.getenv("BROWSER_PLAYWRIGHT_ENDPOINT")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
@@ -21,143 +17,83 @@ if not BROWSER_ENDPOINT:
 # Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Normalize station name
+# Function to upload a file to Supabase Storage
+async def upload_to_supabase(filename, file_data):
+    try:
+        # Upload the file to Supabase Storage (create bucket if it doesn't exist)
+        bucket = supabase.storage.from_("debug_files")  # "debug_files" is the bucket you created in Supabase
+        bucket.upload(filename, file_data)
+        print(f"[INFO] {filename} uploaded to Supabase.")
+    except Exception as e:
+        print(f"[ERROR] Failed to upload {filename}: {e}")
+
+# Function to normalize station names (removes unwanted parts)
 def normalize_station_name(name: str) -> str:
     return name.replace("AMDC ", "").strip()
 
-# Load Grafana dashboard
+# Function to load Grafana and capture screenshot
 async def load_grafana_and_grab(page):
-    await page.goto(GRAFANA_URL, timeout=180_000, wait_until="domcontentloaded")
+    url = "https://estaciones.simet.amdc.hn/public-dashboards/e4d697a0e31647008370b09a592c0129?orgId=1&from=now-24h&to=now"
+    print("Navigating to:", url)
+
+    # Go to Grafana dashboard and wait for the page to load
+    await page.goto(url, timeout=180_000, wait_until="domcontentloaded")
     await page.wait_for_load_state("networkidle", timeout=180_000)
-    await page.set_viewport_size({"width": 1920, "height": 1080})
 
-# Scrape data
-async def scrape(page):
-    data = {}
+    # Set viewport size for better clarity
+    await page.set_viewport_size({"width": 5120, "height": 2880})
 
-    # Take a screenshot to debug what the page looks like
-    await page.screenshot(path="debug_dashboard.png")
-    print("[DEBUG] Screenshot saved as debug_dashboard.png")
+    # Take a screenshot and save it as bytes
+    screenshot = await page.screenshot(full_page=True)  # Save screenshot as bytes
+    await upload_to_supabase("scraping_test.png", screenshot)  # Upload screenshot to Supabase
 
-    # Wait explicitly for PM2.5 section to appear
-    try:
-        await page.wait_for_selector("section[data-testid*='Material Particulado 2.5']", timeout=180_000)
-        print("[DEBUG] PM2.5 section found")
-    except Exception:
-        print("[WARNING] PM2.5 section not found")
+    # Get HTML content for debugging (only save a portion)
+    html = await page.content()
+    await upload_to_supabase("scraping_dump.html", html.encode('utf-8'))  # Upload HTML dump to Supabase
 
-    # PM2.5
-    pm25_stations = await page.query_selector_all(
-        "section[data-testid*='Material Particulado 2.5'] div[style*='text-align: center;']"
-    )
-    pm25_values = await page.query_selector_all(
-        "section[data-testid*='Material Particulado 2.5'] span.flot-temp-elem"
-    )
-    print(f"[DEBUG] Found {len(pm25_stations)} PM2.5 stations, {len(pm25_values)} values")
-    for s, v in zip(pm25_stations, pm25_values):
-        name = (await s.inner_text()).strip()
-        val = (await v.inner_text()).strip()
-        print(f"[DEBUG] PM2.5: {name} = {val}")
-        data[name] = {"PM2.5": val}
+    print("Screenshot and HTML dump uploaded to Supabase")
 
-    # Wait explicitly for PM10 section to appear
-    try:
-        await page.wait_for_selector("section[data-testid*='Material Particulado 10']", timeout=180_000)
-        print("[DEBUG] PM10 section found")
-    except Exception:
-        print("[WARNING] PM10 section not found")
-
-    # PM10
-    pm10_stations = await page.query_selector_all(
-        "section[data-testid*='Material Particulado 10'] div[style*='text-align: center;']"
-    )
-    pm10_values = await page.query_selector_all(
-        "section[data-testid*='Material Particulado 10'] span.flot-temp-elem"
-    )
-    print(f"[DEBUG] Found {len(pm10_stations)} PM10 stations, {len(pm10_values)} values")
-    for s, v in zip(pm10_stations, pm10_values):
-        name = (await s.inner_text()).strip()
-        val = (await v.inner_text()).strip()
-        print(f"[DEBUG] PM10: {name} = {val}")
-        data.setdefault(name, {})
-        data[name]["PM10"] = val
-
-    # AQI
-    try:
-        aqi_values = await page.query_selector_all(
-            "div[data-testid='data-testid Bar gauge value'] span"
-        )
-        print(f"[DEBUG] Found {len(aqi_values)} AQI values")
-        for idx, name in enumerate(list(data.keys())):
-            try:
-                data[name]["AQI"] = int((await aqi_values[idx].inner_text()).strip())
-                print(f"[DEBUG] AQI: {name} = {data[name]['AQI']}")
-            except Exception:
-                data[name]["AQI"] = None
-                print(f"[WARNING] AQI parse failed for {name}")
-    except Exception as e:
-        print("[WARNING] AQI scrape failed:", repr(e))
-
-    return data
-
-# Get or create station
-def get_or_create_estacion(nombre: str):
-    nombre_n = normalize_station_name(nombre)
-    r = supabase.table("estacion").select("*").eq("nombre", nombre_n).maybe_single().execute()
-    row = r.data
-    if not row:
-        print(f"[INFO] Creando estación: {nombre_n}")
-        ins = supabase.table("estacion").insert({"nombre": nombre_n, "fuente": "AMDC"}).execute()
-        row = ins.data[0]
-    else:
-        print(f"[INFO] Estación existente: {nombre_n}")
-    return row
-
-# Get or create contaminant
-def get_or_create_contaminante(nombre: str):
-    r = supabase.table("contaminante").select("*").eq("nombre", nombre).maybe_single().execute()
-    row = r.data
-    if not row:
-        print(f"[INFO] Creando contaminante: {nombre}")
-        ins = supabase.table("contaminante").insert({"nombre": nombre}).execute()
-        row = ins.data[0]
-    else:
-        print(f"[INFO] Contaminante existente: {nombre}")
-    return row
-
-# Create measurement
-def create_medicion(estacion_id: int, contaminante_id: int, valor):
-    try:
-        v = float(str(valor).replace(",", "."))
-    except Exception as e:
-        print(f"[ERROR] Valor inválido: {valor}, Error: {e}")
-        return
-    now_utc = datetime.now().isoformat()
-    print(f"[INFO] Insertando medición: Estación ID={estacion_id}, Contaminante ID={contaminante_id}, Valor={v}")
-    supabase.table("medicion").insert({
-        "estacion_id": estacion_id,
-        "contaminante_id": contaminante_id,
-        "valor": v,
-        "fecha": now_utc
-    }).execute()
-
-# Main async function
+# Main function to scrape data from Grafana and capture necessary data
 async def run():
+    stations_data = {}
+
+    # Connect to Browserless using the environment variable
     async with async_playwright() as p:
-        # Connect to Browserless instead of launching Chromium locally
         browser = await p.chromium.connect(BROWSER_ENDPOINT)
-        page = await browser.new_page(ignore_https_errors=True)
+        page = await browser.new_page(viewport={"width": 1920, "height": 1080}, ignore_https_errors=True)
 
+        # Load Grafana and capture debug info
         await load_grafana_and_grab(page)
-        stations_data = await scrape(page)
-        print("Stations scraped:", stations_data)
 
-        for station_name, measures in stations_data.items():
-            est = get_or_create_estacion(station_name)
-            for contaminante_name, contaminante_value in measures.items():
-                cont = get_or_create_contaminante(contaminante_name)
-                if contaminante_value is not None:
-                    create_medicion(est["id"], cont["id"], contaminante_value)
+        # Scraping PM2.5 data
+        pm25_stations = await page.query_selector_all("section[data-testid*='Material Particulado 2.5'] div[style*='text-align: center;']")
+        pm25_values = await page.query_selector_all("section[data-testid*='Material Particulado 2.5'] span.flot-temp-elem")
+        for s, v in zip(pm25_stations, pm25_values):
+            station_name = await s.inner_text()
+            pm25_value = await v.inner_text()
+            stations_data[station_name] = {"PM2.5": pm25_value}
+
+        # Scraping PM10 data
+        pm10_stations = await page.query_selector_all("section[data-testid*='Material Particulado 10'] div[style*='text-align: center;']")
+        pm10_values = await page.query_selector_all("section[data-testid*='Material Particulado 10'] span.flot-temp-elem")
+        for s, v in zip(pm10_stations, pm10_values):
+            name = await s.inner_text()
+            stations_data.setdefault(name, {})  # Create station if not exist
+            stations_data[name]["PM10"] = await v.inner_text()
+
+        # Scraping AQI data
+        try:
+            aqi_stations = await page.query_selector_all("div[data-testid='data-testid Bar gauge value'] span")
+            for idx, station in enumerate(stations_data.keys()):
+                try:
+                    stations_data[station]["AQI"] = int(await aqi_stations[idx].inner_text())
+                except:
+                    stations_data[station]["AQI"] = None
+        except Exception as e:
+            print("Error AQI:", e)
+
+        # Print out the scraped data for debugging
+        print("Stations scraped:", stations_data)
 
         await browser.close()
 

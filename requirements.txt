@@ -1,2 +1,2 @@
-supabase
+supabase==0.4.0
 playwright
