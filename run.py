@@ -27,8 +27,8 @@ async def load_grafana_and_grab(page):
     print("Navigating to:", url)
 
     # Go to Grafana dashboard and wait for the page to load
-    await page.goto(url, timeout=180_000, wait_until="domcontentloaded")
-    await page.wait_for_load_state("networkidle", timeout=180_000)
+    await page.goto(url, timeout=300_000, wait_until="domcontentloaded")
+    await page.wait_for_load_state("networkidle", timeout=300_000)
 
     # Set viewport size for better clarity
     await page.set_viewport_size({"width": 5120, "height": 2880})
