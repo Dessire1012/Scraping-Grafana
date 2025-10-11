@@ -17,7 +17,7 @@ if not BROWSER_ENDPOINT:
 # Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Function to upload a file to Supabase Storage
+# Function to upload files to Supabase Storage (optional)
 async def upload_to_supabase(filename, file_data):
     try:
         # Upload the file to Supabase Storage (create bucket if it doesn't exist)
@@ -52,6 +52,47 @@ async def load_grafana_and_grab(page):
     await upload_to_supabase("scraping_dump.html", html.encode('utf-8'))  # Upload HTML dump to Supabase
 
     print("Screenshot and HTML dump uploaded to Supabase")
+
+# Function to get or create a station in Supabase
+def get_or_create_estacion(station_name):
+    station_name = normalize_station_name(station_name)
+    response = supabase.table("estacion").select("*").eq("nombre", station_name).maybe_single().execute()
+    row = response.data
+    if not row:
+        print(f"[INFO] Creating station: {station_name}")
+        insert = supabase.table("estacion").insert({"nombre": station_name, "fuente": "AMDC"}).execute()
+        row = insert.data[0]
+    else:
+        print(f"[INFO] Station already exists: {station_name}")
+    return row
+
+# Function to get or create a contaminant in Supabase
+def get_or_create_contaminante(contaminante_name):
+    response = supabase.table("contaminante").select("*").eq("nombre", contaminante_name).maybe_single().execute()
+    row = response.data
+    if not row:
+        print(f"[INFO] Creating contaminant: {contaminante_name}")
+        insert = supabase.table("contaminante").insert({"nombre": contaminante_name}).execute()
+        row = insert.data[0]
+    else:
+        print(f"[INFO] Contaminant already exists: {contaminante_name}")
+    return row
+
+# Function to create a measurement in Supabase
+def create_medicion(estacion_id, contaminante_id, contaminante_value):
+    try:
+        value = float(str(contaminante_value).replace(",", "."))
+    except Exception as e:
+        print(f"[ERROR] Invalid value: {contaminante_value}, Error: {e}")
+        return
+    now_utc = datetime.now().isoformat()
+    print(f"[INFO] Inserting measurement: Station ID={estacion_id}, Contaminant ID={contaminante_id}, Value={value}")
+    supabase.table("medicion").insert({
+        "estacion_id": estacion_id,
+        "contaminante_id": contaminante_id,
+        "valor": value,
+        "fecha": now_utc
+    }).execute()
 
 # Main function to scrape data from Grafana and capture necessary data
 async def run():
@@ -94,6 +135,20 @@ async def run():
 
         # Print out the scraped data for debugging
         print("Stations scraped:", stations_data)
+
+        # Save the data to the Supabase database
+        for station_name, data in stations_data.items():
+            normalized_name = normalize_station_name(station_name)
+
+            # Get or create the station in Supabase
+            estacion = get_or_create_estacion(station_name)
+
+            for contaminante_name, contaminante_value in data.items():
+                # Get or create the contaminant in Supabase
+                contaminante = get_or_create_contaminante(contaminante_name)
+
+                # Insert the measurement data into Supabase
+                create_medicion(estacion["id"], contaminante["id"], contaminante_value)
 
         await browser.close()
 
