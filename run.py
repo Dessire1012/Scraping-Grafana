@@ -6,7 +6,7 @@ from playwright.async_api import async_playwright
 
 # Environment variables (to be configured in Railway or your local environment)
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")  # The service role key
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")  
 BROWSER_ENDPOINT = os.getenv("BROWSER_PLAYWRIGHT_ENDPOINT")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
@@ -16,16 +16,6 @@ if not BROWSER_ENDPOINT:
 
 # Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# Function to upload files to Supabase Storage (optional)
-async def upload_to_supabase(filename, file_data):
-    try:
-        # Upload the file to Supabase Storage (create bucket if it doesn't exist)
-        bucket = supabase.storage.from_("debug_files")  # "debug_files" is the bucket you created in Supabase
-        bucket.upload(filename, file_data)
-        print(f"[INFO] {filename} uploaded to Supabase.")
-    except Exception as e:
-        print(f"[ERROR] Failed to upload {filename}: {e}")
 
 # Function to normalize station names (removes unwanted parts)
 def normalize_station_name(name: str) -> str:
@@ -42,16 +32,6 @@ async def load_grafana_and_grab(page):
 
     # Set viewport size for better clarity
     await page.set_viewport_size({"width": 5120, "height": 2880})
-
-    # Take a screenshot and save it as bytes
-    screenshot = await page.screenshot(full_page=True)  # Save screenshot as bytes
-    await upload_to_supabase("scraping_test.png", screenshot)  # Upload screenshot to Supabase
-
-    # Get HTML content for debugging (only save a portion)
-    html = await page.content()
-    await upload_to_supabase("scraping_dump.html", html.encode('utf-8'))  # Upload HTML dump to Supabase
-
-    print("Screenshot and HTML dump uploaded to Supabase")
 
 # Function to get or create a station in Supabase
 def get_or_create_estacion(station_name):
