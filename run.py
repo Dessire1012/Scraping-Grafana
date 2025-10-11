@@ -6,7 +6,7 @@ from playwright.async_api import async_playwright
 
 # Environment variables (to be configured in Railway or your local environment)
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")  
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")  # The service role key
 BROWSER_ENDPOINT = os.getenv("BROWSER_PLAYWRIGHT_ENDPOINT")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
@@ -17,7 +17,17 @@ if not BROWSER_ENDPOINT:
 # Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Function to normalize station names (removes unwanted parts)
+# Function to upload files to Supabase Storage (optional)
+async def upload_to_supabase(filename, file_data):
+    try:
+        # Upload the file to Supabase Storage 
+        bucket = supabase.storage.from_("debug_files")  
+        bucket.upload(filename, file_data)
+        print(f"[INFO] {filename} uploaded to Supabase.")
+    except Exception as e:
+        print(f"[ERROR] Failed to upload {filename}: {e}")
+
+# Function to normalize station names 
 def normalize_station_name(name: str) -> str:
     return name.replace("AMDC ", "").strip()
 
@@ -27,16 +37,21 @@ async def load_grafana_and_grab(page):
     print("Navigating to:", url)
 
     # Go to Grafana dashboard and wait for the page to load
-    await page.goto(url, timeout=300_000, wait_until="domcontentloaded")
-    await page.wait_for_load_state("networkidle", timeout=300_000)
+    await page.goto(url, timeout=180_000, wait_until="domcontentloaded")
+    await page.wait_for_load_state("networkidle", timeout=180_000)
 
     # Set viewport size for better clarity
     await page.set_viewport_size({"width": 5120, "height": 2880})
 
+    # Take a screenshot and save it 
+    screenshot = await page.screenshot(full_page=True)
+    await upload_to_supabase("scraping_test.png", screenshot)  # Upload screenshot to Supabase
+
+    # Get HTML content for debugging (only save a portion)
     html = await page.content()
-    with open("scraping_dump.html", "w", encoding="utf-8") as f:
-        f.write(html[:200000])  # Save a portion of HTML
-    print("HTML dump saved as scraping_dump.html")
+    await upload_to_supabase("scraping_dump.html", html.encode('utf-8'))  # Upload HTML dump to Supabase
+
+    print("Screenshot and HTML dump uploaded to Supabase")
 
 # Function to get or create a station in Supabase
 def get_or_create_estacion(station_name):
