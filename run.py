@@ -99,10 +99,8 @@ def create_medicion(estacion_id: int, contaminante_id: int, valor):
 # Función principal que maneja el scraping y guarda en la base de datos
 async def run():
     async with async_playwright() as p:
-        try:
-            browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-        except Exception:
-            browser = await p.firefox.launch(headless=True)
+       
+        browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
         page = await browser.new_page(ignore_https_errors=True)
 
         await load_grafana_and_grab(page)
