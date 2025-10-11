@@ -33,6 +33,11 @@ async def load_grafana_and_grab(page):
     # Set viewport size for better clarity
     await page.set_viewport_size({"width": 5120, "height": 2880})
 
+    html = await page.content()
+    with open("scraping_dump.html", "w", encoding="utf-8") as f:
+        f.write(html[:200000])  # Save a portion of HTML
+    print("HTML dump saved as scraping_dump.html")
+
 # Function to get or create a station in Supabase
 def get_or_create_estacion(station_name):
     station_name = normalize_station_name(station_name)
