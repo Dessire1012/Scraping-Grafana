@@ -21,7 +21,11 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 async def upload_to_supabase(filename, file_data):
     try:
         # Upload the file to Supabase Storage 
-        bucket = supabase.storage.from_("debug_files")  
+        bucket = supabase.storage.from_("debug_files")
+        bucket.remove([filename])  # This removes the existing file with the same name
+        print(f"[INFO] Deleted existing file: {filename}")
+
+        # Upload the new file to Supabase
         bucket.upload(filename, file_data)
         print(f"[INFO] {filename} uploaded to Supabase.")
     except Exception as e:
