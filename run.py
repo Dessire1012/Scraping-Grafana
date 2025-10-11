@@ -34,6 +34,18 @@ async def load_grafana_and_grab(page):
 # Scrape data
 async def scrape(page):
     data = {}
+
+    # Take a screenshot to debug what the page looks like
+    await page.screenshot(path="debug_dashboard.png")
+    print("[DEBUG] Screenshot saved as debug_dashboard.png")
+
+    # Wait explicitly for PM2.5 section to appear
+    try:
+        await page.wait_for_selector("section[data-testid*='Material Particulado 2.5']", timeout=180_000)
+        print("[DEBUG] PM2.5 section found")
+    except Exception:
+        print("[WARNING] PM2.5 section not found")
+
     # PM2.5
     pm25_stations = await page.query_selector_all(
         "section[data-testid*='Material Particulado 2.5'] div[style*='text-align: center;']"
@@ -41,10 +53,19 @@ async def scrape(page):
     pm25_values = await page.query_selector_all(
         "section[data-testid*='Material Particulado 2.5'] span.flot-temp-elem"
     )
+    print(f"[DEBUG] Found {len(pm25_stations)} PM2.5 stations, {len(pm25_values)} values")
     for s, v in zip(pm25_stations, pm25_values):
         name = (await s.inner_text()).strip()
         val = (await v.inner_text()).strip()
+        print(f"[DEBUG] PM2.5: {name} = {val}")
         data[name] = {"PM2.5": val}
+
+    # Wait explicitly for PM10 section to appear
+    try:
+        await page.wait_for_selector("section[data-testid*='Material Particulado 10']", timeout=180_000)
+        print("[DEBUG] PM10 section found")
+    except Exception:
+        print("[WARNING] PM10 section not found")
 
     # PM10
     pm10_stations = await page.query_selector_all(
@@ -53,9 +74,11 @@ async def scrape(page):
     pm10_values = await page.query_selector_all(
         "section[data-testid*='Material Particulado 10'] span.flot-temp-elem"
     )
+    print(f"[DEBUG] Found {len(pm10_stations)} PM10 stations, {len(pm10_values)} values")
     for s, v in zip(pm10_stations, pm10_values):
         name = (await s.inner_text()).strip()
         val = (await v.inner_text()).strip()
+        print(f"[DEBUG] PM10: {name} = {val}")
         data.setdefault(name, {})
         data[name]["PM10"] = val
 
@@ -64,13 +87,16 @@ async def scrape(page):
         aqi_values = await page.query_selector_all(
             "div[data-testid='data-testid Bar gauge value'] span"
         )
+        print(f"[DEBUG] Found {len(aqi_values)} AQI values")
         for idx, name in enumerate(list(data.keys())):
             try:
                 data[name]["AQI"] = int((await aqi_values[idx].inner_text()).strip())
+                print(f"[DEBUG] AQI: {name} = {data[name]['AQI']}")
             except Exception:
                 data[name]["AQI"] = None
+                print(f"[WARNING] AQI parse failed for {name}")
     except Exception as e:
-        print("AQI scrape warn:", repr(e))
+        print("[WARNING] AQI scrape failed:", repr(e))
 
     return data
 
