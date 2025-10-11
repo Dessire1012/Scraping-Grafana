@@ -61,26 +61,34 @@ def get_or_create_estacion(nombre: str):
     r = supabase.table("estacion").select("*").eq("nombre", nombre_n).maybe_single().execute()
     row = r.data
     if not row:
+        print(f"[INFO] Creando estación: {nombre_n}")  # Debugging log
         ins = supabase.table("estacion").insert({"nombre": nombre_n, "fuente": "AMDC"}).execute()
         row = ins.data[0]
-    return row  
+    else:
+        print(f"[INFO] Estación existente: {nombre_n}")  # Debugging log
+    return row  # dict con id, nombre, etc.
 
 # Función para obtener o crear un contaminante
 def get_or_create_contaminante(nombre: str):
     r = supabase.table("contaminante").select("*").eq("nombre", nombre).maybe_single().execute()
     row = r.data
     if not row:
+        print(f"[INFO] Creando contaminante: {nombre}")  # Debugging log
         ins = supabase.table("contaminante").insert({"nombre": nombre}).execute()
         row = ins.data[0]
+    else:
+        print(f"[INFO] Contaminante existente: {nombre}")  # Debugging log
     return row
 
 # Función para crear una medición
 def create_medicion(estacion_id: int, contaminante_id: int, valor):
     try:
         v = float(str(valor).replace(",", "."))
-    except Exception:
+    except Exception as e:
+        print(f"[ERROR] Valor inválido: {valor}, Error: {e}")  # Debugging log
         return
     now_utc = datetime.now().isoformat()
+    print(f"[INFO] Insertando medición: Estación ID={estacion_id}, Contaminante ID={contaminante_id}, Valor={v}")  # Debugging log
     supabase.table("medicion").insert({
         "estacion_id": estacion_id,
         "contaminante_id": contaminante_id,
