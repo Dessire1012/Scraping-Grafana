@@ -23,13 +23,15 @@ def normalize_station_name(name: str) -> str:
     return name.replace("AMDC ", "").strip()
 
 def supabase_execute_with_retry(fn, retries=3, delay=2):
+    last_exc = None
     for i in range(retries):
-        response = fn()
-        if response is not None:
-            return response
-        print(f"[WARN] Supabase no respondió, retry {i+1}/{retries}")
-        time.sleep(delay)
-    raise RuntimeError("Supabase no respondió tras varios intentos")
+        try:
+            return fn()
+        except Exception as e:
+            last_exc = e
+            print(f"[WARN] Supabase error, retry {i+1}/{retries}: {e}")
+            time.sleep(delay)
+    raise RuntimeError("Supabase falló tras varios intentos") from last_exc
 
 # Function to upload files to Supabase Storage (optional)
 async def upload_to_supabase(filename, file_data):
@@ -79,9 +81,6 @@ def get_or_create_estacion(station_name):
         .execute()
     )
 
-    if response.error:
-        raise RuntimeError(f"Supabase error (select estacion): {response.error}")
-
     row = response.data
 
     if not row:
@@ -92,9 +91,6 @@ def get_or_create_estacion(station_name):
             .insert({"nombre": station_name, "fuente": "AMDC"})
             .execute()
         )
-
-        if insert.error:
-            raise RuntimeError(f"Supabase error (insert estacion): {insert.error}")
 
         row = insert.data[0]
     else:
@@ -112,9 +108,6 @@ def get_or_create_contaminante(contaminante_name):
         .execute()
     )
 
-    if response.error:
-        raise RuntimeError(f"Supabase error (select contaminante): {response.error}")
-
     row = response.data
 
     if not row:
@@ -125,9 +118,6 @@ def get_or_create_contaminante(contaminante_name):
             .insert({"nombre": contaminante_name})
             .execute()
         )
-
-        if insert.error:
-            raise RuntimeError(f"Supabase error (insert contaminante): {insert.error}")
 
         row = insert.data[0]
     else:
@@ -145,7 +135,7 @@ def create_medicion(estacion_id, contaminante_id, contaminante_value):
 
     now_utc = datetime.utcnow().isoformat()
 
-    response = supabase_execute_with_retry(
+    supabase_execute_with_retry(
         lambda: supabase.table("medicion")
         .insert(
             {
@@ -157,10 +147,6 @@ def create_medicion(estacion_id, contaminante_id, contaminante_value):
         )
         .execute()
     )
-
-    if response.error:
-        print(f"[ERROR] Error insert medicion: {response.error}")
-
 
 # Main function to scrape data from Grafana and capture necessary data
 async def run():
