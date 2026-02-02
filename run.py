@@ -1,4 +1,5 @@
 import os
+import time
 import asyncio
 from datetime import datetime
 from supabase import create_client
@@ -17,6 +18,19 @@ if not BROWSER_ENDPOINT:
 # Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# Helpers
+def normalize_station_name(name: str) -> str:
+    return name.replace("AMDC ", "").strip()
+
+def supabase_execute_with_retry(fn, retries=3, delay=2):
+    for i in range(retries):
+        response = fn()
+        if response is not None:
+            return response
+        print(f"[WARN] Supabase no respondió, retry {i+1}/{retries}")
+        time.sleep(delay)
+    raise RuntimeError("Supabase no respondió tras varios intentos")
+
 # Function to upload files to Supabase Storage (optional)
 async def upload_to_supabase(filename, file_data):
     try:
@@ -30,10 +44,6 @@ async def upload_to_supabase(filename, file_data):
         print(f"[INFO] {filename} uploaded to Supabase.")
     except Exception as e:
         print(f"[ERROR] Failed to upload {filename}: {e}")
-
-# Function to normalize station names 
-def normalize_station_name(name: str) -> str:
-    return name.replace("AMDC ", "").strip()
 
 # Function to load Grafana and capture screenshot
 async def load_grafana_and_grab(page):
@@ -60,43 +70,97 @@ async def load_grafana_and_grab(page):
 # Function to get or create a station in Supabase
 def get_or_create_estacion(station_name):
     station_name = normalize_station_name(station_name)
-    response = supabase.table("estacion").select("*").eq("nombre", station_name).maybe_single().execute()
+
+    response = supabase_execute_with_retry(
+        lambda: supabase.table("estacion")
+        .select("*")
+        .eq("nombre", station_name)
+        .maybe_single()
+        .execute()
+    )
+
+    if response.error:
+        raise RuntimeError(f"Supabase error (select estacion): {response.error}")
+
     row = response.data
+
     if not row:
         print(f"[INFO] Creating station: {station_name}")
-        insert = supabase.table("estacion").insert({"nombre": station_name, "fuente": "AMDC"}).execute()
+
+        insert = supabase_execute_with_retry(
+            lambda: supabase.table("estacion")
+            .insert({"nombre": station_name, "fuente": "AMDC"})
+            .execute()
+        )
+
+        if insert.error:
+            raise RuntimeError(f"Supabase error (insert estacion): {insert.error}")
+
         row = insert.data[0]
     else:
-        print(f"[INFO] Station already exists: {station_name}")
+        print(f"[INFO] Station exists: {station_name}")
+
     return row
 
-# Function to get or create a contaminant in Supabase
+
 def get_or_create_contaminante(contaminante_name):
-    response = supabase.table("contaminante").select("*").eq("nombre", contaminante_name).maybe_single().execute()
+    response = supabase_execute_with_retry(
+        lambda: supabase.table("contaminante")
+        .select("*")
+        .eq("nombre", contaminante_name)
+        .maybe_single()
+        .execute()
+    )
+
+    if response.error:
+        raise RuntimeError(f"Supabase error (select contaminante): {response.error}")
+
     row = response.data
+
     if not row:
         print(f"[INFO] Creating contaminant: {contaminante_name}")
-        insert = supabase.table("contaminante").insert({"nombre": contaminante_name}).execute()
+
+        insert = supabase_execute_with_retry(
+            lambda: supabase.table("contaminante")
+            .insert({"nombre": contaminante_name})
+            .execute()
+        )
+
+        if insert.error:
+            raise RuntimeError(f"Supabase error (insert contaminante): {insert.error}")
+
         row = insert.data[0]
     else:
-        print(f"[INFO] Contaminant already exists: {contaminante_name}")
+        print(f"[INFO] Contaminant exists: {contaminante_name}")
+
     return row
 
-# Function to create a measurement in Supabase
+
 def create_medicion(estacion_id, contaminante_id, contaminante_value):
     try:
         value = float(str(contaminante_value).replace(",", "."))
     except Exception as e:
-        print(f"[ERROR] Invalid value: {contaminante_value}, Error: {e}")
+        print(f"[ERROR] Invalid value {contaminante_value}: {e}")
         return
-    now_utc = datetime.now().isoformat()
-    print(f"[INFO] Inserting measurement: Station ID={estacion_id}, Contaminant ID={contaminante_id}, Value={value}")
-    supabase.table("medicion").insert({
-        "estacion_id": estacion_id,
-        "contaminante_id": contaminante_id,
-        "valor": value,
-        "fecha": now_utc
-    }).execute()
+
+    now_utc = datetime.utcnow().isoformat()
+
+    response = supabase_execute_with_retry(
+        lambda: supabase.table("medicion")
+        .insert(
+            {
+                "estacion_id": estacion_id,
+                "contaminante_id": contaminante_id,
+                "valor": value,
+                "fecha": now_utc,
+            }
+        )
+        .execute()
+    )
+
+    if response.error:
+        print(f"[ERROR] Error insert medicion: {response.error}")
+
 
 # Main function to scrape data from Grafana and capture necessary data
 async def run():
@@ -142,8 +206,6 @@ async def run():
 
         # Save the data to the Supabase database
         for station_name, data in stations_data.items():
-            normalized_name = normalize_station_name(station_name)
-
             # Get or create the station in Supabase
             estacion = get_or_create_estacion(station_name)
 
