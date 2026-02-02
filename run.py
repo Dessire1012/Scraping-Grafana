@@ -1,7 +1,7 @@
 import os
 import time
 import asyncio
-from datetime import datetime
+from datetime import datetime, UTC
 from supabase import create_client
 from playwright.async_api import async_playwright
 
@@ -24,13 +24,21 @@ def normalize_station_name(name: str) -> str:
 
 def supabase_execute_with_retry(fn, retries=3, delay=2):
     last_exc = None
+
     for i in range(retries):
         try:
-            return fn()
+            response = fn()
+
+            if response is None:
+                raise RuntimeError("Supabase returned None")
+
+            return response
+
         except Exception as e:
             last_exc = e
             print(f"[WARN] Supabase error, retry {i+1}/{retries}: {e}")
             time.sleep(delay)
+
     raise RuntimeError("Supabase falló tras varios intentos") from last_exc
 
 # Function to upload files to Supabase Storage (optional)
@@ -81,6 +89,9 @@ def get_or_create_estacion(station_name):
         .execute()
     )
 
+    if response is None or response.data is None:
+        raise RuntimeError(f"No data returned for estacion: {station_name}")
+
     row = response.data
 
     if not row:
@@ -92,12 +103,14 @@ def get_or_create_estacion(station_name):
             .execute()
         )
 
+        if insert is None or not insert.data:
+            raise RuntimeError(f"Failed to insert estacion: {station_name}")
+
         row = insert.data[0]
     else:
         print(f"[INFO] Station exists: {station_name}")
 
     return row
-
 
 def get_or_create_contaminante(contaminante_name):
     response = supabase_execute_with_retry(
@@ -107,6 +120,9 @@ def get_or_create_contaminante(contaminante_name):
         .maybe_single()
         .execute()
     )
+
+    if response is None or response.data is None:
+        raise RuntimeError(f"No data returned for contaminante: {contaminante_name}")
 
     row = response.data
 
@@ -118,6 +134,9 @@ def get_or_create_contaminante(contaminante_name):
             .insert({"nombre": contaminante_name})
             .execute()
         )
+
+        if insert is None or not insert.data:
+            raise RuntimeError(f"Failed to insert contaminante: {contaminante_name}")
 
         row = insert.data[0]
     else:
@@ -133,7 +152,7 @@ def create_medicion(estacion_id, contaminante_id, contaminante_value):
         print(f"[ERROR] Invalid value {contaminante_value}: {e}")
         return
 
-    now_utc = datetime.utcnow().isoformat()
+    now_utc = datetime.now(UTC).isoformat()
 
     supabase_execute_with_retry(
         lambda: supabase.table("medicion")
