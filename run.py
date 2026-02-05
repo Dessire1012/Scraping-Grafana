@@ -82,34 +82,35 @@ def get_or_create_estacion(station_name):
     station_name = normalize_station_name(station_name)
 
     response = supabase_execute_with_retry(
-        lambda: supabase.table("estacion")
-        .select("*")
-        .eq("nombre", station_name)
-        .maybe_single()
-        .execute()
+        lambda: supabase
+            .table("estacion")
+            .select("*")
+            .eq("nombre", station_name)
+            .maybe_single()
+            .execute()
     )
 
-    if response is None or response.data is None:
-        raise RuntimeError(f"No data returned for estacion: {station_name}")
+    if response is None:
+        raise RuntimeError(f"Supabase returned None for estacion: {station_name}")
 
     row = response.data
 
-    if not row:
+    if row is None:
         print(f"[INFO] Creating station: {station_name}")
 
         insert = supabase_execute_with_retry(
-            lambda: supabase.table("estacion")
-            .insert({"nombre": station_name, "fuente": "AMDC"})
-            .execute()
+            lambda: supabase
+                .table("estacion")
+                .insert({"nombre": station_name, "fuente": "AMDC"})
+                .execute()
         )
 
         if insert is None or not insert.data:
             raise RuntimeError(f"Failed to insert estacion: {station_name}")
 
-        row = insert.data[0]
-    else:
-        print(f"[INFO] Station exists: {station_name}")
+        return insert.data[0]
 
+    print(f"[INFO] Station exists: {station_name}")
     return row
 
 def get_or_create_contaminante(contaminante_name):
