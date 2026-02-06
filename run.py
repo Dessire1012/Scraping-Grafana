@@ -23,30 +23,14 @@ def normalize_station_name(name: str) -> str:
     return name.replace("AMDC ", "").strip()
 
 def supabase_execute_with_retry(fn, retries=3, delay=2):
-    last_exc = None
-
     for i in range(retries):
         try:
-            response = fn()
-
-            # Si Supabase devuelve None, simplemente reintenta
-            if response is None:
-                print(f"[WARN] Supabase returned None, retry {i+1}/{retries}")
-                time.sleep(delay)
-                continue
-
-            # Si hay error real de Supabase
-            if hasattr(response, "error") and response.error:
-                raise RuntimeError(response.error)
-
-            return response
-
+            return fn()
         except Exception as e:
-            last_exc = e
             print(f"[WARN] Supabase exception, retry {i+1}/{retries}: {e}")
             time.sleep(delay)
 
-    raise RuntimeError("Supabase falló tras varios intentos") from last_exc
+    raise RuntimeError("Supabase falló tras varios intentos")
 
 # Function to upload files to Supabase Storage (optional)
 async def upload_to_supabase(filename, file_data):
@@ -97,7 +81,10 @@ def get_or_create_estacion(station_name):
             .execute()
     )
 
-    row = response.data
+    if response is None:
+        row = None
+    else:
+        row = response.data
 
     if row is None:
         print(f"[INFO] Creating station: {station_name}")
