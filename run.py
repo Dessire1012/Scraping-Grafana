@@ -27,13 +27,7 @@ def supabase_execute_with_retry(fn, retries=3, delay=2):
 
     for i in range(retries):
         try:
-            response = fn()
-
-            if response is None:
-                raise RuntimeError("Supabase returned None")
-
-            return response
-
+            return fn()
         except Exception as e:
             last_exc = e
             print(f"[WARN] Supabase error, retry {i+1}/{retries}: {e}")
