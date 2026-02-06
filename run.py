@@ -84,9 +84,6 @@ def get_or_create_estacion(station_name):
             .execute()
     )
 
-    if response is None:
-        raise RuntimeError(f"Supabase returned None for estacion: {station_name}")
-
     row = response.data
 
     if row is None:
