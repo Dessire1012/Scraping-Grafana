@@ -138,6 +138,11 @@ def get_or_create_contaminante(contaminante_name):
 
 
 def create_medicion(estacion_id, contaminante_id, contaminante_value):
+
+    if contaminante_value is None:
+        print("[INFO] Measurement skipped (None)")
+        return
+
     try:
         value = float(str(contaminante_value).replace(",", "."))
     except Exception as e:
@@ -187,16 +192,55 @@ async def run():
             stations_data.setdefault(name, {})  # Create station if not exist
             stations_data[name]["PM10"] = await v.inner_text()
 
+        # ==========================
         # Scraping AQI data
-        try:
-            aqi_stations = await page.query_selector_all("div[data-testid='data-testid Bar gauge value'] span")
-            for idx, station in enumerate(stations_data.keys()):
-                try:
-                    stations_data[station]["AQI"] = int(await aqi_stations[idx].inner_text())
-                except:
-                    stations_data[station]["AQI"] = None
-        except Exception as e:
-            print("Error AQI:", e)
+        # ==========================
+
+        print("\n========== SCRAPING AQI ==========")
+
+        await page.wait_for_selector(
+            "div[data-testid='data-testid Bar gauge value'] span",
+            timeout=60000
+        )
+
+        # Obtener todos los elementos del panel AQI
+        all_aqi = await page.query_selector_all(
+            "div[data-testid='data-testid Bar gauge value'] span"
+        )
+
+        print(f"Total elementos AQI encontrados: {len(all_aqi)}")
+
+        # Filtrar únicamente los valores numéricos
+        aqi_values = []
+
+        for i, el in enumerate(all_aqi):
+            text = (await el.inner_text()).strip()
+
+            print(f"Elemento {i}: {text}")
+
+            if text.isdigit():
+                aqi_values.append(int(text))
+
+        print(f"AQI numéricos encontrados: {aqi_values}")
+
+        # Verificar que coincida la cantidad de estaciones
+        station_names = list(stations_data.keys())
+
+        if len(aqi_values) != len(station_names):
+            print(
+                f"[WARN] Se encontraron {len(aqi_values)} AQI y {len(station_names)} estaciones."
+            )
+
+        # Asignar AQI a cada estación
+        for station, value in zip(station_names, aqi_values):
+            stations_data[station]["AQI"] = value
+            print(f"{station} -> AQI = {value}")
+
+        # Si alguna estación quedó sin AQI
+        for station in station_names:
+            stations_data[station].setdefault("AQI", None)
+
+        print("========== FIN AQI ==========\n")
 
         # Print out the scraped data for debugging
         print("Stations scraped:", stations_data)
